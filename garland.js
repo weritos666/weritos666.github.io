@@ -163,7 +163,7 @@
 
   function shouldHideNow() {
     var h = (location.hash || '').toLowerCase();
-    var byHashSettings = (h.indexOf('settings') !== -1 || h.indexOf('настройк') !== -1);
+    var byHashSettings = (h.indexOf('settings') !== -1 || h.indexOf('настройк') !== -1 || h.indexOf('налашт') !== -1);
     return byHashSettings || detectOverlayOpen() || detectPlayerOpen();
   }
 
@@ -179,17 +179,79 @@
   }
 
   // ======= Settings UI =======
-function addSettingsUI() {
-  if (window.__garlandfx_settings_added__) return;
-  window.__garlandfx_settings_added__ = true;
+  // i18n: ru/en/uk for Settings items
+  var I18N = {
+    title: { ru: 'Гирлянда', en: 'Garland', uk: 'Гірлянда' },
 
-  injectGarlandIconCSS();
-  if (!window.Lampa || !Lampa.SettingsApi) return;
+    off: { ru: 'Выкл', en: 'Off', uk: 'Вимк' },
+    on:  { ru: 'Вкл',  en: 'On',  uk: 'Увімк' },
+
+    enabled_name: { ru: 'Гирлянда на экранах', en: 'Garland on screens', uk: 'Гірлянда на екранах' },
+    enabled_desc: {
+      ru: 'Главная / Фильмы / Сериалы / Категории (в плеере и оверлеях скрывается)',
+      en: 'Home / Movies / TV Shows / Categories (hidden in player and overlays)',
+      uk: 'Головна / Фільми / Серіали / Категорії (у плеєрі та оверлеях приховується)'
+    },
+
+    mode_name: { ru: 'Режим отрисовки', en: 'Render mode', uk: 'Режим промальовування' },
+    mode_desc:  { ru: 'Авто: на TV/Tizen/мобиле выбирает Canvas', en: 'Auto: on TV/Tizen/mobile uses Canvas', uk: 'Авто: на TV/Tizen/мобільних вибирає Canvas' },
+    mode_auto:  { ru: 'Авто (рекомендовано)', en: 'Auto (recommended)', uk: 'Авто (рекомендовано)' },
+    mode_canvas:{ ru: 'Canvas (быстро)', en: 'Canvas (fast)', uk: 'Canvas (швидко)' },
+    mode_dom:   { ru: 'DOM (красиво, тяжелее)', en: 'DOM (pretty, heavier)', uk: 'DOM (гарно, важче)' },
+
+    quality_name: { ru: 'Качество эффекта', en: 'Effect quality', uk: 'Якість ефекту' },
+    quality_desc: {
+      ru: 'Влияет на нагрузку и красоту. На TV/Tizen лучше Авто/Низкое',
+      en: 'Affects performance and visuals. On TV/Tizen, use Auto/Low',
+      uk: 'Впливає на навантаження та вигляд. На TV/Tizen краще Авто/Низьке'
+    },
+    quality_auto:   { ru: 'Авто', en: 'Auto', uk: 'Авто' },
+    quality_low:    { ru: 'Низкое', en: 'Low', uk: 'Низьке' },
+    quality_medium: { ru: 'Среднее', en: 'Medium', uk: 'Середнє' },
+    quality_high:   { ru: 'Высокое', en: 'High', uk: 'Високе' }
+  };
+
+  function getLangCode() {
+    var lang = '';
+
+    try {
+      if (window.Lampa && Lampa.Storage && typeof Lampa.Storage.get === 'function') {
+        lang =
+          Lampa.Storage.get('language', '') ||
+          Lampa.Storage.get('lang', '') ||
+          Lampa.Storage.get('locale', '') ||
+          Lampa.Storage.get('interface_language', '') ||
+          Lampa.Storage.get('interface_lang', '') ||
+          '';
+      }
+    } catch (e) {}
+
+    if (!lang) lang = (navigator.language || navigator.userLanguage || 'ru');
+
+    lang = String(lang).toLowerCase();
+    if (lang.indexOf('uk') === 0 || lang.indexOf('ua') === 0) return 'uk';
+    if (lang.indexOf('en') === 0) return 'en';
+    return 'ru';
+  }
+
+  function tr(key) {
+    var pack = I18N[key];
+    if (!pack) return key;
+    var l = getLangCode();
+    return pack[l] || pack.ru || pack.en || key;
+  }
+
+  function addSettingsUI() {
+    if (window.__garlandfx_settings_added__) return;
+    window.__garlandfx_settings_added__ = true;
+
+    injectGarlandIconCSS();
+    if (!window.Lampa || !Lampa.SettingsApi) return;
 
     try {
       Lampa.SettingsApi.addComponent({
         component: 'garlandfx',
-        name: 'Гирлянда',
+        name: tr('title'),
         icon: GARLAND_ICON
       });
 
@@ -198,12 +260,12 @@ function addSettingsUI() {
         param: {
           name: KEY_ENABLED,
           type: 'select',
-          values: { 0: 'Выкл', 1: 'Вкл' },
+          values: { 0: tr('off'), 1: tr('on') },
           "default": 1
         },
         field: {
-          name: 'Гирлянда на экранах',
-          description: 'Главная / Фильмы / Сериалы / Категории (в плеере и оверлеях скрывается)'
+          name: tr('enabled_name'),
+          description: tr('enabled_desc')
         }
       });
 
@@ -213,15 +275,15 @@ function addSettingsUI() {
           name: KEY_MODE,
           type: 'select',
           values: {
-            0: 'Авто (рекомендовано)',
-            1: 'Canvas (быстро)',
-            2: 'DOM (красиво, тяжелее)'
+            0: tr('mode_auto'),
+            1: tr('mode_canvas'),
+            2: tr('mode_dom')
           },
           "default": 0
         },
         field: {
-          name: 'Режим отрисовки',
-          description: 'Авто: на TV/Tizen/мобиле выбирает Canvas'
+          name: tr('mode_name'),
+          description: tr('mode_desc')
         }
       });
 
@@ -230,12 +292,17 @@ function addSettingsUI() {
         param: {
           name: KEY_QUALITY,
           type: 'select',
-          values: { 0: 'Авто', 1: 'Низкое', 2: 'Среднее', 3: 'Высокое' },
+          values: {
+            0: tr('quality_auto'),
+            1: tr('quality_low'),
+            2: tr('quality_medium'),
+            3: tr('quality_high')
+          },
           "default": 0
         },
         field: {
-          name: 'Качество эффекта',
-          description: 'Влияет на нагрузку и красоту. На TV/Tizen лучше Авто/Низкое'
+          name: tr('quality_name'),
+          description: tr('quality_desc')
         }
       });
     } catch (e) {}
@@ -296,7 +363,7 @@ function addSettingsUI() {
 
   function onHashForReorder() {
     var h = (location.hash || '').toLowerCase();
-    var inSettings = (h.indexOf('settings') !== -1 || h.indexOf('настройк') !== -1);
+    var inSettings = (h.indexOf('settings') !== -1 || h.indexOf('настройк') !== -1 || h.indexOf('налашт') !== -1);
 
     if (inSettings) startSettingsReorderWatch();
     else stopSettingsReorderWatch();
