@@ -32,6 +32,8 @@
       '</g>' +
     '</svg>';
 
+
+
   // --- platform detect ---
   function isTizen() {
     try { if (window.Lampa && Lampa.Platform && Lampa.Platform.is && Lampa.Platform.is('tizen')) return true; } catch (e) {}
@@ -613,6 +615,7 @@ function resetAccumulationSoft(reason) {
     spritesFall[3] = makeSnowflakeSprite(3);
   }
 
+
   function ensureCanvases() {
     if (!document.body) return;
 
@@ -662,6 +665,9 @@ function resetAccumulationSoft(reason) {
     lastTs = 0;
 
     stopCaps();
+
+    // экономим батарею на мобилках
+    stopMotion();
   }
 
   function resize() {
@@ -1079,6 +1085,10 @@ function resetAccumulationSoft(reason) {
     }
 
     running = true;
+
+    // включаем "стряхивание" при фактическом старте эффекта
+    if (shake_enabled) ensureMotion();
+
     rafId = requestAnimationFrame(loop);
   }
 
@@ -1170,20 +1180,38 @@ function resetAccumulationSoft(reason) {
     } catch (e) {}
   }
 
-
-    // --- Shake to clear snow (mobile) ---
+  // --- Shake to clear snow (mobile) ---
   // Работает через devicemotion. На iOS может требоваться разрешение (первый тап/клик).
+  // Важно: запускаем/останавливаем слушатель вместе с запуском/остановкой эффекта, иначе после закрытия настроек
+  // (когда снег временно выключен из-за overlay) "стряхивание" может не включиться обратно.
   var shake_enabled = 0;
+
   var motion_active = false;
   var motion_ready = false;
   var motion_ask_bound = false;
 
+  // last motion sample (для расчёта рывка)
+  var last_mot_x = null;
+  var last_mot_y = null;
+  var last_mot_z = null;
+  var last_mot_ts = 0;
+
+  // анти-спам для триггера
   var last_shake_ts = 0;
   var shake_hits = 0;
   var shake_window_ts = 0;
 
   function setShakeEnabled(v) {
     v = v ? 1 : 0;
+
+    // если значение не менялось — просто синхронизируем состояние слушателя с running
+    if (shake_enabled === v) {
+      if (!shake_enabled) { stopMotion(); return; }
+      if (cfg_tizen || !isMobileUA()) { stopMotion(); return; }
+      if (running) ensureMotion(); else stopMotion();
+      return;
+    }
+
     shake_enabled = v;
 
     if (!shake_enabled) {
@@ -1192,11 +1220,50 @@ function resetAccumulationSoft(reason) {
     }
 
     // только мобилки, не Tizen
-    if (cfg_tizen || !isMobileUA()) return;
+    if (cfg_tizen || !isMobileUA()) {
+      stopMotion();
+      return;
+    }
 
     // запускаем только когда эффект реально активен
     if (running) ensureMotion();
     else stopMotion();
+  }
+
+  function normalizeAccel(ax, ay, az) {
+    // Некоторые WebView/браузеры отдают ускорение в "g", некоторые в m/s^2.
+    // Если значения очень маленькие (обычно <= ~3), считаем что это g и переводим в m/s^2.
+    var mx = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az));
+    if (mx > 0 && mx <= 3.5) {
+      ax *= 9.81; ay *= 9.81; az *= 9.81;
+    }
+    return { x: ax, y: ay, z: az };
+  }
+
+  function doShakeEffect() {
+    // очищаем "осевший" снег даже если оседание временно выключено (например, в карточке)
+    try { clearAccumulationRuntime('shake'); } catch (e1) {}
+
+    // если оседание включено — перестроим поверхности чуть позже
+    if (!cfg_tizen && cfg_settle) {
+      try {
+        if (resetTimer) clearTimeout(resetTimer);
+        resetTimer = setTimeout(function () {
+          resetTimer = 0;
+          buildSurfaces();
+        }, 180);
+      } catch (e2) {}
+    }
+
+    // порыв ветра у падающего снега (чтобы было видно, что встряхивание сработало даже без оседания)
+    try {
+      for (var i = 0; i < flakes.length; i++) {
+        flakes[i].vx += rand(-1.6, 1.6);
+        flakes[i].vy *= 0.80;
+        // немного "подбросим" часть снежинок вверх
+        if (Math.random() < 0.35) flakes[i].y = rand(-H * 0.35, 0);
+      }
+    } catch (e3) {}
   }
 
   function onDeviceMotion(e) {
@@ -1210,19 +1277,42 @@ function resetAccumulationSoft(reason) {
     var acc = e && (e.accelerationIncludingGravity || e.acceleration);
     if (!acc) return;
 
-    var ax = Math.abs(acc.x || 0);
-    var ay = Math.abs(acc.y || 0);
-    var az = Math.abs(acc.z || 0);
+    var ax = Number(acc.x || 0);
+    var ay = Number(acc.y || 0);
+    var az = Number(acc.z || 0);
 
-    // дельта ускорений (очень грубо, но быстро и стабильно)
-    var delta = ax + ay + az;
+    var n = normalizeAccel(ax, ay, az);
+    ax = n.x; ay = n.y; az = n.z;
 
     var now = Date.now();
-    var TH = 25.0;          // порог (м/с^2)
-    var WINDOW = 450;       // окно детекции
-    var COOLDOWN = 1100;    // антиспам
+    if (!last_mot_ts) {
+      last_mot_ts = now;
+      last_mot_x = ax; last_mot_y = ay; last_mot_z = az;
+      return;
+    }
 
-    if (delta > TH) {
+    // если между событиями был большой разрыв — сбрасываем baseline
+    if (now - last_mot_ts > 1200) {
+      last_mot_ts = now;
+      last_mot_x = ax; last_mot_y = ay; last_mot_z = az;
+      return;
+    }
+
+    // оценка "рывка": сумма модулей дельт по осям (гравитация частично компенсируется разностью)
+    var jerk = Math.abs(ax - last_mot_x) + Math.abs(ay - last_mot_y) + Math.abs(az - last_mot_z);
+
+    last_mot_ts = now;
+    last_mot_x = ax; last_mot_y = ay; last_mot_z = az;
+
+    // пороги: iOS часто даёт чуть "мягче" значения → порог выше не нужен
+    var ua = navigator.userAgent || '';
+    var isiOS = /iPhone|iPad|iPod/i.test(ua);
+
+    var TH = isiOS ? 12.5 : 11.0;   // порог рывка (m/s^2)
+    var WINDOW = 650;              // окно детекции
+    var COOLDOWN = 1100;           // антиспам
+
+    if (jerk > TH) {
       if (now - last_shake_ts < COOLDOWN) return;
 
       if (!shake_window_ts || (now - shake_window_ts) > WINDOW) {
@@ -1232,21 +1322,13 @@ function resetAccumulationSoft(reason) {
 
       shake_hits++;
 
+      // требуем 2 сильных рывка в окне — так меньше ложных срабатываний
       if (shake_hits >= 2) {
         last_shake_ts = now;
         shake_hits = 0;
         shake_window_ts = 0;
 
-        // "стряхиваем" оседание (мгновенно), без полос
-        resetAccumulationHard('shake');
-
-        // небольшой "порыв ветра" у падающего снега
-        try {
-          for (var i = 0; i < flakes.length; i++) {
-            flakes[i].vx += rand(-1.2, 1.2);
-            flakes[i].vy *= 0.75;
-          }
-        } catch (e2) {}
+        doShakeEffect();
       }
     }
   }
@@ -1256,20 +1338,28 @@ function resetAccumulationSoft(reason) {
     if (typeof window.DeviceMotionEvent === 'undefined') return;
 
     try {
-      window.addEventListener('devicemotion', onDeviceMotion, false);
+      // passive снижает влияние на scroll
+      window.addEventListener('devicemotion', onDeviceMotion, { passive: true });
       motion_active = true;
-    } catch (e) {}
+    } catch (e) {
+      try {
+        window.addEventListener('devicemotion', onDeviceMotion, false);
+        motion_active = true;
+      } catch (e2) {}
+    }
   }
 
   function stopMotion() {
     if (!motion_active) return;
-    try { window.removeEventListener('devicemotion', onDeviceMotion, false); } catch (e) {}
+    try { window.removeEventListener('devicemotion', onDeviceMotion, { passive: true }); } catch (e) {}
+    try { window.removeEventListener('devicemotion', onDeviceMotion, false); } catch (e2) {}
     motion_active = false;
   }
 
   function ensureMotion() {
-    if (motion_ready) { startMotion(); return; }
     if (!shake_enabled) return;
+
+    if (motion_ready) { startMotion(); return; }
 
     // iOS 13+ требует запрос разрешения только по пользовательскому действию
     if (typeof window.DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -1301,8 +1391,8 @@ function resetAccumulationSoft(reason) {
     startMotion();
   }
 
-
   // --- i18n (Settings labels) ---
+
   function snowfx_detect_lang() {
     var l = '';
     try {
@@ -1699,6 +1789,13 @@ function resetAccumulationSoft(reason) {
     cfg_tizen = !!cfg.tizen;
     cfg_fps = cfg.fps;
     cfg_flakes = cfg.flakes;
+
+    // синхронизируем настройку \"Стряхивание\" (важно: если включили в настройках, когда оверлей открыт, эффект временно выключен и слушатель иначе не стартанёт)
+    try {
+      var sd = (!cfg_tizen && isMobileUA()) ? 1 : 0;
+      var shv = num(storageGet(KEY_SHAKE, sd), sd) ? 1 : 0;
+      setShakeEnabled(shv);
+    } catch (e0) {}
 
     // размер снежинок
     var prev_size_mult = cfg_size_mult;
