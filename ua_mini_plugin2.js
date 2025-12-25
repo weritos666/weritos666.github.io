@@ -240,13 +240,49 @@
     try { if (window.Lampa && Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show(t('done')); } catch (e4) {}
   }
 
+  function addLangPack() {
+    try {
+      if (!window.Lampa || !Lampa.Lang || typeof Lampa.Lang.add !== 'function') return;
+      Lampa.Lang.add({
+        ru: {
+          ua_mini_title: I18N.ru.title,
+          ua_mini_show: I18N.ru.show,
+          ua_mini_show_desc: I18N.ru.show_desc,
+          ua_mini_press: I18N.ru.press,
+          ua_mini_done: I18N.ru.done,
+          ua_mini_activity: I18N.ru.activity,
+          ua_mini_activity2: I18N.ru.activity2
+        },
+        en: {
+          ua_mini_title: I18N.en.title,
+          ua_mini_show: I18N.en.show,
+          ua_mini_show_desc: I18N.en.show_desc,
+          ua_mini_press: I18N.en.press,
+          ua_mini_done: I18N.en.done,
+          ua_mini_activity: I18N.en.activity,
+          ua_mini_activity2: I18N.en.activity2
+        },
+        ua: {
+          ua_mini_title: I18N.ua.title,
+          ua_mini_show: I18N.ua.show,
+          ua_mini_show_desc: I18N.ua.show_desc,
+          ua_mini_press: I18N.ua.press,
+          ua_mini_done: I18N.ua.done,
+          ua_mini_activity: I18N.ua.activity,
+          ua_mini_activity2: I18N.ua.activity2
+        }
+      });
+    } catch (e) {}
+  }
+
   function initSettings() {
     if (!window.Lampa || !Lampa.SettingsApi) return;
 
     try {
       Lampa.SettingsApi.addComponent({
         component: 'ua_mini',
-        name: t('title')
+        name: 'ua_mini_title',
+        icon: ''
       });
 
       // Use a select as an "action" (portable across old SettingsApi versions)
@@ -255,12 +291,12 @@
         param: {
           name: KEY_SHOW,
           type: 'select',
-          values: { 0: t('press'), 1: t('show') },
+          values: { 0: 'ua_mini_press', 1: 'ua_mini_show' },
           "default": 0
         },
         field: {
-          name: t('show'),
-          description: t('show_desc')
+          name: 'ua_mini_show',
+          description: 'ua_mini_show_desc'
         }
       });
     } catch (e) {}
@@ -291,6 +327,7 @@
   }
 
   // Boot
+  addLangPack();
   initSettings();
   // try bind early
   try { bindActivity(); } catch (e0) {}
