@@ -1,10 +1,13 @@
 (function () {
   'use strict';
 
-  // Mini plugin: show User-Agent + basic env info
-  // Lampa compatible (SettingsApi)
-  if (window.__ua_mini_plugin_loaded__) return;
-  window.__ua_mini_plugin_loaded__ = true;
+  // Mini plugin: show User-Agent + basic env info (UA + Activity + Last screen)
+  // IMPORTANT: does NOT touch Lampa.Lang dictionaries (to avoid breaking translations)
+
+  try {
+    if (window.__ua_mini_plugin_ver__ && window.__ua_mini_plugin_ver__ >= 4) return;
+    window.__ua_mini_plugin_ver__ = 4;
+  } catch (e) {}
 
   var KEY_SHOW = 'ua_mini_show';
 
@@ -15,19 +18,57 @@
   var last_content_activity = null;
   var last_content_activity_ts = 0;
 
+  var activity_bound = false;
+
+  function isDisallowedComponentName(c) {
+    c = (c || '').toString().toLowerCase();
+    if (!c) return false;
+    return (
+      c.indexOf('player') >= 0 ||
+      c.indexOf('settings') >= 0 ||
+      c.indexOf('search') >= 0 ||
+      c.indexOf('keyboard') >= 0 ||
+      c.indexOf('notice') >= 0
+    );
+  }
+
+  function bindActivity() {
+    if (activity_bound) return;
+    activity_bound = true;
+
+    try {
+      if (!window.Lampa || !Lampa.Listener || typeof Lampa.Listener.follow !== 'function') return;
+
+      Lampa.Listener.follow('activity', function (e) {
+        try {
+          if (e && e.type === 'start') {
+            last_activity = e;
+            last_activity_ts = Date.now();
+
+            var c = (e.component || (e.object && e.object.component) || '').toString();
+            if (!isDisallowedComponentName(c)) {
+              last_content_activity = e;
+              last_content_activity_ts = last_activity_ts;
+            }
+          }
+        } catch (err) {}
+      });
+    } catch (e) {}
+  }
+
   function langCode() {
+    var l = '';
     try {
       if (window.Lampa && Lampa.Storage) {
-        if (typeof Lampa.Storage.lang === 'function') {
-          var ll = Lampa.Storage.lang();
-          if (ll) return String(ll).toLowerCase();
-        }
-        if (typeof Lampa.Storage.get === 'function') {
-          var l = Lampa.Storage.get('language', '');
-          if (l) return String(l).toLowerCase();
-        }
+        if (typeof Lampa.Storage.lang === 'function') l = Lampa.Storage.lang();
+        else if (typeof Lampa.Storage.get === 'function') l = Lampa.Storage.get('lang') || Lampa.Storage.get('language') || Lampa.Storage.get('locale');
       }
     } catch (e) {}
+
+    l = (l || '').toString().toLowerCase();
+    if (l.indexOf('uk') === 0 || l.indexOf('ua') === 0) return 'ua';
+    if (l.indexOf('en') === 0) return 'en';
+
     var n = (navigator.language || navigator.userLanguage || 'ru').toLowerCase();
     if (n.indexOf('uk') === 0 || n.indexOf('ua') === 0) return 'ua';
     if (n.indexOf('en') === 0) return 'en';
@@ -42,7 +83,7 @@
       activity: 'Активность',
       activity2: 'Последний экран',
       press: 'Нажмите',
-      done: 'UA показан (и скопирован, если возможно)'
+      done: 'Информация показана (и скопирована, если возможно)'
     },
     en: {
       title: 'User-Agent',
@@ -51,7 +92,7 @@
       activity: 'Activity',
       activity2: 'Last screen',
       press: 'Press',
-      done: 'UA shown (and copied if possible)'
+      done: 'Info shown (and copied if possible)'
     },
     ua: {
       title: 'User-Agent',
@@ -60,78 +101,9 @@
       activity: 'Активність',
       activity2: 'Останній екран',
       press: 'Натисніть',
-      done: 'UA показано (і скопійовано, якщо можливо)'
+      done: 'Інформацію показано (і скопійовано, якщо можливо)'
     }
   };
-
-  function isDisallowedComponentName(c) {
-    c = (c || '').toString().toLowerCase();
-    return (
-      c.indexOf('player') !== -1 ||
-      c.indexOf('settings') !== -1 ||
-      c.indexOf('select') !== -1 ||
-      c.indexOf('keyboard') !== -1 ||
-      c.indexOf('search') !== -1
-    );
-  }
-
-  function bindActivity() {
-    try {
-      if (!window.Lampa || !Lampa.Listener || !Lampa.Listener.follow) return false;
-      if (bindActivity._bound) return true;
-      bindActivity._bound = true;
-
-      Lampa.Listener.follow('activity', function (e) {
-        // store last start activity (most useful)
-        try {
-          if (e && e.type === 'start') {
-            last_activity = e;
-            last_activity_ts = Date.now();
-
-            // also store last content screen (so we can see it even after opening Settings)
-            var c = (e.component || (e.object && e.object.component) || '').toString();
-            if (!isDisallowedComponentName(c)) {
-              last_content_activity = e;
-              last_content_activity_ts = last_activity_ts;
-            }
-          }
-        } catch (err) {}
-      });
-
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function activitySummary(e, ts) {
-    if (!e) return 'n/a';
-    var c = '';
-    try {
-      c = (e.component || (e.object && e.object.component) || e.name || '').toString();
-    } catch (e) {}
-
-    var t = '';
-    try { t = (e.type || '').toString(); } catch (e2) {}
-
-    var extra = '';
-    try {
-      extra = (e.url || e.hash || (e.object && e.object.url) || '').toString();
-    } catch (e3) {}
-
-    var ago = '';
-    try {
-      if (ts) {
-        var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-        ago = ' (' + s + 's ago)';
-      }
-    } catch (e4) {}
-
-    var base = [t, c].filter(Boolean).join(' / ');
-    if (!base) base = c || t || 'n/a';
-    if (extra) base += ' | ' + extra;
-    return base + ago;
-  }
 
   function t(key) {
     var l = langCode();
@@ -140,99 +112,111 @@
 
   function safeStorageGet(key, def) {
     try {
-      if (window.Lampa && Lampa.Storage && typeof Lampa.Storage.get === 'function') return Lampa.Storage.get(key, def);
+      if (window.Lampa && Lampa.Storage && typeof Lampa.Storage.get === 'function') {
+        var v = Lampa.Storage.get(key);
+        if (v === undefined || v === null || v === '') return def;
+        return v;
+      }
     } catch (e) {}
-    try {
-      var v = localStorage.getItem(key);
-      return v === null ? def : v;
-    } catch (e2) {}
     return def;
   }
 
   function safeStorageSet(key, val) {
     try {
-      if (window.Lampa && Lampa.Storage && typeof Lampa.Storage.set === 'function') return Lampa.Storage.set(key, val);
+      if (window.Lampa && Lampa.Storage && typeof Lampa.Storage.set === 'function') {
+        Lampa.Storage.set(key, val);
+      } else {
+        try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+      }
     } catch (e) {}
-    try { localStorage.setItem(key, String(val)); } catch (e2) {}
   }
 
   function platformFlags() {
-    var res = [];
-    try {
-      if (window.Lampa && Lampa.Platform && Lampa.Platform.is) {
-        ['android','tizen','webos','orsay','windows','macos','linux','browser'].forEach(function (p) {
-          try { if (Lampa.Platform.is(p)) res.push(p); } catch (e) {}
-        });
-      }
-    } catch (e2) {}
-    return res.length ? res.join(', ') : 'unknown';
+    var ua = (navigator.userAgent || '').toLowerCase();
+    var p = [];
+    if (ua.indexOf('tizen') >= 0) p.push('tizen');
+    if (ua.indexOf('webos') >= 0) p.push('webos');
+    if (ua.indexOf('android') >= 0) p.push('android');
+    if (ua.indexOf('aft') >= 0 || ua.indexOf('firetv') >= 0) p.push('firetv');
+    if (ua.indexOf('tv') >= 0) p.push('tv');
+    if (/iphone|ipad|ipod/.test(ua)) p.push('ios');
+    if (/windows/.test(ua)) p.push('windows');
+    if (/mac os/.test(ua) && !/iphone|ipad|ipod/.test(ua)) p.push('mac');
+    if (!p.length) p.push('unknown');
+    return p.join(',');
   }
 
-  function canvasSupport() {
+  function canCanvas2D() {
     try {
       var c = document.createElement('canvas');
-      var ctx = null;
-      try { ctx = c.getContext('2d', { alpha: true }); } catch (e) {}
-      if (!ctx) { try { ctx = c.getContext('2d'); } catch (e2) {} }
+      var ctx = c.getContext && (c.getContext('2d', { alpha: true }) || c.getContext('2d'));
       return !!ctx;
-    } catch (e3) {
-      return false;
-    }
+    } catch (e) { return false; }
   }
 
-  function getInfo() {
+  function activitySummary(e, ts) {
+    if (!e) return '-';
+    var age = ts ? (' (' + Math.max(0, Math.round((Date.now() - ts) / 1000)) + 's ago)') : '';
+    var c = (e.component || (e.object && e.object.component) || '');
+    var name = (e.name || e.method || '');
+    return [name, c].filter(Boolean).join(' / ') + age;
+  }
+
+  function copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function(){});
+        return;
+      }
+    } catch (e) {}
+
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e2) {}
+      document.body.removeChild(ta);
+    } catch (e3) {}
+  }
+
+  function buildInfo() {
     var lines = [];
     lines.push('UA: ' + (navigator.userAgent || ''));
     lines.push('Lang: ' + (navigator.language || ''));
     lines.push('Platform: ' + platformFlags());
-    // Lampa screen/component
+
     try { bindActivity(); } catch (e0) {}
     lines.push(t('activity') + ': ' + activitySummary(last_activity, last_activity_ts));
     lines.push(t('activity2') + ': ' + activitySummary(last_content_activity, last_content_activity_ts));
+
     lines.push('DPR: ' + (window.devicePixelRatio || 1));
-    lines.push('inner: ' + (window.innerWidth || 0) + 'x' + (window.innerHeight || 0));
+    lines.push('Viewport: ' + (window.innerWidth || 0) + 'x' + (window.innerHeight || 0));
     try {
-      var de = document.documentElement || {};
-      lines.push('client: ' + (de.clientWidth || 0) + 'x' + (de.clientHeight || 0));
-    } catch (e) {
-      lines.push('client: n/a');
-    }
-    lines.push('Canvas2D: ' + (canvasSupport() ? 'yes' : 'no'));
+      var de = document.documentElement;
+      lines.push('Doc: ' + (de ? (de.clientWidth + 'x' + de.clientHeight) : '-'));
+    } catch (e1) {}
+    try { lines.push('Screen: ' + (screen.width + 'x' + screen.height)); } catch (e2) {}
+
+    lines.push('Canvas2D: ' + (canCanvas2D() ? 'yes' : 'no'));
     return lines.join('\n');
   }
 
-  function copyToClipboard(text) {
-    // best-effort
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text);
-        return true;
-      }
-    } catch (e) {}
-    try {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      ta.style.left = '-9999px';
-      ta.style.top = '-9999px';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      var ok = false;
-      try { ok = document.execCommand('copy'); } catch (e2) {}
-      document.body.removeChild(ta);
-      return ok;
-    } catch (e3) {}
-    return false;
-  }
-
   function showInfo() {
-    var info = getInfo();
-    try { console.log('[UA MINI]\n' + info); } catch (e) {}
+    var info = buildInfo();
 
-    // Alert works everywhere, including Android TV WebView.
-    try { alert(info); } catch (e2) {
+    // try best UI surface available
+    try {
+      if (window.Lampa && Lampa.Alert && typeof Lampa.Alert.show === 'function') {
+        Lampa.Alert.show(info, t('title'));
+      } else {
+        alert(info);
+      }
+    } catch (e2) {
       try { if (window.Lampa && Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show(info); } catch (e3) {}
     }
 
@@ -240,48 +224,13 @@
     try { if (window.Lampa && Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show(t('done')); } catch (e4) {}
   }
 
-  function addLangPack() {
+  function addSettings() {
     try {
-      if (!window.Lampa || !Lampa.Lang || typeof Lampa.Lang.add !== 'function') return;
-      Lampa.Lang.add({
-        ru: {
-          ua_mini_title: I18N.ru.title,
-          ua_mini_show: I18N.ru.show,
-          ua_mini_show_desc: I18N.ru.show_desc,
-          ua_mini_press: I18N.ru.press,
-          ua_mini_done: I18N.ru.done,
-          ua_mini_activity: I18N.ru.activity,
-          ua_mini_activity2: I18N.ru.activity2
-        },
-        en: {
-          ua_mini_title: I18N.en.title,
-          ua_mini_show: I18N.en.show,
-          ua_mini_show_desc: I18N.en.show_desc,
-          ua_mini_press: I18N.en.press,
-          ua_mini_done: I18N.en.done,
-          ua_mini_activity: I18N.en.activity,
-          ua_mini_activity2: I18N.en.activity2
-        },
-        ua: {
-          ua_mini_title: I18N.ua.title,
-          ua_mini_show: I18N.ua.show,
-          ua_mini_show_desc: I18N.ua.show_desc,
-          ua_mini_press: I18N.ua.press,
-          ua_mini_done: I18N.ua.done,
-          ua_mini_activity: I18N.ua.activity,
-          ua_mini_activity2: I18N.ua.activity2
-        }
-      });
-    } catch (e) {}
-  }
+      if (!window.Lampa || !Lampa.SettingsApi) return;
 
-  function initSettings() {
-    if (!window.Lampa || !Lampa.SettingsApi) return;
-
-    try {
       Lampa.SettingsApi.addComponent({
         component: 'ua_mini',
-        name: 'ua_mini_title',
+        name: t('title'),
         icon: ''
       });
 
@@ -291,12 +240,12 @@
         param: {
           name: KEY_SHOW,
           type: 'select',
-          values: { 0: 'ua_mini_press', 1: 'ua_mini_show' },
+          values: { 0: t('press'), 1: t('show') },
           "default": 0
         },
         field: {
-          name: 'ua_mini_show',
-          description: 'ua_mini_show_desc'
+          name: t('show'),
+          description: t('show_desc')
         }
       });
     } catch (e) {}
@@ -308,29 +257,26 @@
     function tick() {
       var v = safeStorageGet(KEY_SHOW, 0);
       // normalize
-      v = (v === true || v === 'true') ? 1 : v;
-      v = parseInt(v, 10);
-      if (isNaN(v)) v = 0;
+      v = (v === true) ? 1 : (v === false ? 0 : v);
+      if (typeof v === 'string') v = parseInt(v, 10) || 0;
 
-      if (v !== last) last = v;
-
-      if (v === 1) {
-        // reset immediately to allow repeated use
-        safeStorageSet(KEY_SHOW, 0);
-        last = 0;
-        showInfo();
+      if (v !== last) {
+        last = v;
+        if (v === 1) {
+          // reset so it's "button-like"
+          safeStorageSet(KEY_SHOW, 0);
+          showInfo();
+        }
       }
-      setTimeout(tick, 600);
+      setTimeout(tick, 400);
     }
 
     tick();
   }
 
-  // Boot
-  addLangPack();
-  initSettings();
-  // try bind early
+  // init
   try { bindActivity(); } catch (e0) {}
+  addSettings();
   poll();
 
 })();
