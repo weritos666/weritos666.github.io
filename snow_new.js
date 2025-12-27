@@ -1608,7 +1608,7 @@ function resetAccumulationSoft(reason) {
           name: KEY_ENABLED,
           type: 'select',
           values: onoff,
-          "default": 1
+          "default": 0
         },
         field: {
           name: snowfx_t('enabled_name'),
