@@ -724,7 +724,7 @@ function isSearchOpen() {
 
 function soundDesiredNow() {
   if (!cfg_sound) return 0;
-  var enabled = num(storageGet(KEY_ENABLED, 1), 1) ? 1 : 0;
+  var enabled = num(storageGet(KEY_ENABLED, 0), 0) ? 1 : 0;
   if (!enabled) return 0;
   if (document.hidden) return 0;
   if (in_player) return 0;
@@ -1525,7 +1525,7 @@ function isHiddenByAncestor(el) {
   }
 
   function shouldRunNow() {
-    var enabled = num(storageGet(KEY_ENABLED, 1), 1) ? 1 : 0;
+    var enabled = num(storageGet(KEY_ENABLED, 0), 0) ? 1 : 0;
     if (!enabled) return false;
     if (in_player) return false;
     if (overlay_open) return false;
@@ -3258,7 +3258,7 @@ tilt_strong: 'Сильно',
 
       Lampa.SettingsApi.addParam({
         component: 'rainfx',
-        param: { name: KEY_ENABLED, type: 'select', values: onoff, "default": 1 },
+        param: { name: KEY_ENABLED, type: 'select', values: onoff, "default": 0 },
         field: { name: rainfx_t('enabled_name'), description: rainfx_t('enabled_desc') }
       });
 
@@ -3493,7 +3493,7 @@ updateTiltBinding();
 
       var tizen = isTizen();
 
-      var en = num(storageGet(KEY_ENABLED, 1), 1) | 0;
+      var en = num(storageGet(KEY_ENABLED, 0), 0) | 0;
       var de = num(storageGet(KEY_DENSITY, 0), 0) | 0;
       var ty = num(storageGet(KEY_TYPE, 0), 0) | 0;
       if (ty < 0) ty = 0;
