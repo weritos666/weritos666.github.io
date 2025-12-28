@@ -390,7 +390,7 @@ function isElVisible(el) {
   }
 
   function shouldRunNow() {
-    var enabled = num(storageGet(KEY_ENABLED, 1), 1) ? 1 : 0;
+    var enabled = num(storageGet(KEY_ENABLED, 0), 0) ? 1 : 0;
     if (!enabled) return false;
     if (in_player) return false;
     if (overlay_open) return false;      // ключевой фикс: не перекрывать настройки
@@ -1883,7 +1883,7 @@ function resetAccumulationSoft(reason) {
       var tizen = isTizen();
       var settleDefault = tizen ? 0 : 1;
 
-      var en = num(storageGet(KEY_ENABLED, 1), 1) | 0;
+      var en = num(storageGet(KEY_ENABLED, 0), 0) | 0;
       var de = num(storageGet(KEY_DENSITY, 0), 0) | 0;
       var fd = tizen ? 1 : 0;
       var fl = num(storageGet(KEY_FLAKE, fd), fd) | 0;
